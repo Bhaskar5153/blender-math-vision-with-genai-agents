@@ -18,7 +18,7 @@ def save_blender_script(script:str, filename:str, folder_name:str="blender_scrip
 
     # Save the script to a file
     file_path = os.path.join(folder_name, filename)
-    with open(file_path, "w") as f:
+    with open(file_path, "w", encoding='utf-8') as f:
         f.write(script)
 
     return file_path

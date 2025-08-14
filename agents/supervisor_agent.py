@@ -67,19 +67,24 @@ class SupervisorAgent:
                 "domain": normalized_domain,
                 "solution": f"No agent found for the domain: {domain}.",
                 "agent": "None",
-                "user_input": user_input
+                "animation_agent": None,
+                "blender_script": None,
+                "user_input": user_input,
+                "subdomain": subdomain,
             }
 
         
         solution = agent.solve(user_input)
         animation_plan = self.animation_agent.generate_markdown_animation_plan(user_input, solution, subdomain)
+        blender_script = self.animation_agent.generate_blender_script(markdown_plan=animation_plan, user_input=user_input, subdomain=subdomain)
         return {
             "domain": domain,
             "subdomain": subdomain,
             "solution": solution,
             "agent": agent.__class__.__name__,
             "user_input": user_input,
-            "animation_plan": animation_plan
+            "animation_plan": animation_plan,
+            "blender_script": blender_script
         
         }
         
@@ -94,3 +99,4 @@ if __name__ == "__main__":
     print(f"User Input: {response['user_input']}")
     print(f"Animation Plan: {response['animation_plan']}")
     print(f"Subdomain: {response['subdomain']}")
+    print(f"blender script: {response['blender_script']}")

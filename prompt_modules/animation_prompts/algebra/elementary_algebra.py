@@ -28,24 +28,33 @@ Your task is to visualize an **elementary algebra** problem and its solution usi
 🧠 Goal:
 Make the animation intuitive for middle/high school students. Each step should match the algebraic logic and help learners understand the transformation from problem to solution.
 
-Respond with:
-1. 🎞️ A step-by-step animation plan
-2. 🧱 Asset suggestions
-3. ⏱️ Timing and transitions
+🛑 Do not include any Markdown formatting like ```python or ``` in the output.
+
+# Respond with:
+# 1. 🎞️ A step-by-step animation plan
+# 2. 🧱 Asset suggestions
+# 3. ⏱️ Timing and transitions
+
 """
+
 
 def build_blender_prompt(markdown_plan: str) -> str:
     return f"""
 You are a Blender 4.4.3+ animation expert.
 
-Convert the following Markdown animation plan into a Python script using bpy:
+Convert the following Markdown animation plan into a Python script using bpy.
 
 {markdown_plan}
 
 Requirements:
++ Output only the raw Python script — no Markdown formatting like ```python or ```
++ Ensure compatibility with Blender 4.4.3+ APIs
++ Avoid deprecated or context-sensitive calls (e.g., bpy.context.active_object)
++ Explicitly select and activate objects before modifying them:
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
++ Add all objects to the correct collection and ensure visibility in viewport and render
 + Use semantic animation cues (fade, slide, highlight)
-+ Ensure all objects are visible in viewport and render
 + Use real-world assets where appropriate
-+ Avoid deprecated APIs
-+ Output only the Python script
++ Ensure the script runs without errors in Blender's scripting editor
 """
