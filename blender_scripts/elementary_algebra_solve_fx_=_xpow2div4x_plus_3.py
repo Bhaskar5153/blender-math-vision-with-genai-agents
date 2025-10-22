@@ -15,10 +15,10 @@ GLOW_PULSE_DURATION = 0.5 * FPS  # 0.5 seconds
 DRAW_DURATION = 2 * FPS  # For graph drawing
 
 # Easing types
-EASE_IN_OUT = 'QUARTIC'
-EASE_OUT = 'QUARTIC_OUT'
-EASE_IN = 'QUARTIC_IN'
-LINEAR = 'LINEAR'
+EASE_IN_OUT = 'EASE_IN_OUT'
+EASE_OUT = 'EASE_OUT'
+EASE_IN = 'EASE_IN'
+LINEAR = 'AUTO'
 
 # Global variable to hold collections for easier access
 collections = {}
@@ -78,7 +78,7 @@ def add_object_to_collection(obj, collection_name):
             col.objects.unlink(obj)
 
     # Link to the specified collection if not already linked
-    if obj not in collections[collection_name].objects:
+    if obj.name not in collections[collection_name].objects:
         collections[collection_name].objects.link(obj)
 
 def set_active_object(obj):
@@ -103,14 +103,15 @@ def create_material(name, color=(0.8, 0.8, 0.8, 1), emission_strength=0.0, rough
             bsdf.inputs['Base Color'].default_value = color
             bsdf.inputs['Roughness'].default_value = roughness
             bsdf.inputs['Metallic'].default_value = metallic
-            bsdf.inputs['Transmission'].default_value = transmission
+            # Transmission input may not exist in some Blender versions
+            if 'Transmission' in bsdf.inputs:
+                bsdf.inputs['Transmission'].default_value = transmission
             bsdf.inputs['IOR'].default_value = ior
             bsdf.inputs['Emission Strength'].default_value = emission_strength
             bsdf.inputs['Emission Color'].default_value = color[:3] + (1,) # Use base color for emission
 
             if blend_method != 'OPAQUE':
                 mat.blend_method = blend_method
-                mat.shadow_method = 'HASHED' # For better transparency shadows
     else: # Update existing material properties
         if use_nodes:
             bsdf = mat.node_tree.nodes.get('Principled BSDF')
@@ -118,18 +119,19 @@ def create_material(name, color=(0.8, 0.8, 0.8, 1), emission_strength=0.0, rough
                 bsdf.inputs['Base Color'].default_value = color
                 bsdf.inputs['Roughness'].default_value = roughness
                 bsdf.inputs['Metallic'].default_value = metallic
-                bsdf.inputs['Transmission'].default_value = transmission
+                # Transmission input may not exist in some Blender versions
+                if 'Transmission' in bsdf.inputs:
+                    bsdf.inputs['Transmission'].default_value = transmission
                 bsdf.inputs['IOR'].default_value = ior
                 bsdf.inputs['Emission Strength'].default_value = emission_strength
                 bsdf.inputs['Emission Color'].default_value = color[:3] + (1,)
 
         mat.blend_method = blend_method
-        mat.shadow_method = 'HASHED' if blend_method != 'OPAQUE' else 'OPAQUE'
 
     return mat
 
 def animate_property(obj, property_path, start_frame, end_frame, start_value, end_value, easing='LINEAR', data_path_index=-1):
-    """Animates a single property of an object."""
+    """Animates a single property of an object or node socket."""
     # Set initial value and keyframe
     if data_path_index == -1:
         setattr(obj, property_path, start_value)
@@ -150,17 +152,17 @@ def animate_property(obj, property_path, start_frame, end_frame, start_value, en
 
     obj.keyframe_insert(data_path=property_path, frame=end_frame, index=data_path_index)
 
-    # Set easing for the fcurve
-    fcurves = obj.animation_data.action.fcurves
-    if data_path_index != -1:
-        fcurve = fcurves.find(property_path, index=data_path_index)
-    else:
-        fcurve = fcurves.find(property_path)
-    
-    if fcurve:
-        for kf in fcurve.keyframe_points:
-            kf.interpolation = 'BEZIER'
-            kf.easing = easing
+    # Set easing for the fcurve if possible
+    if hasattr(obj, 'animation_data') and obj.animation_data and obj.animation_data.action:
+        fcurves = obj.animation_data.action.fcurves
+        if data_path_index != -1:
+            fcurve = fcurves.find(property_path, index=data_path_index)
+        else:
+            fcurve = fcurves.find(property_path)
+        if fcurve:
+            for kf in fcurve.keyframe_points:
+                kf.interpolation = 'BEZIER'
+                kf.easing = easing
 
 def animate_fade(obj, start_frame, duration, fade_in=True, use_material_alpha=True):
     """Animates an object's visibility or material alpha."""
@@ -173,18 +175,18 @@ def animate_fade(obj, start_frame, duration, fade_in=True, use_material_alpha=Tr
             principled_node = mat.node_tree.nodes.get('Principled BSDF')
             if principled_node and 'Alpha' in principled_node.inputs:
                 mat.blend_method = 'BLEND'
-                mat.shadow_method = 'HASHED'
-                
+                if hasattr(mat, 'shadow_method'):
+                    mat.shadow_method = 'HASHED'
+                    mat.keyframe_insert(data_path='shadow_method', frame=start_frame)
+                    mat.keyframe_insert(data_path='shadow_method', frame=end_frame)
+                mat.keyframe_insert(data_path='blend_method', frame=start_frame)
+                mat.keyframe_insert(data_path='blend_method', frame=end_frame)
+
                 if fade_in:
                     animate_property(principled_node.inputs['Alpha'], 'default_value', start_frame, end_frame, 0.0, 1.0, EASE_IN_OUT)
                 else:
                     animate_property(principled_node.inputs['Alpha'], 'default_value', start_frame, end_frame, 1.0, 0.0, EASE_IN_OUT)
                 
-                mat.keyframe_insert(data_path='blend_method', frame=start_frame)
-                mat.keyframe_insert(data_path='shadow_method', frame=start_frame)
-                mat.keyframe_insert(data_path='blend_method', frame=end_frame)
-                mat.keyframe_insert(data_path='shadow_method', frame=end_frame)
-
     # Animate object visibility
     obj.hide_render = True
     obj.hide_viewport = True
@@ -213,7 +215,7 @@ def animate_fade(obj, start_frame, duration, fade_in=True, use_material_alpha=Tr
         obj.keyframe_insert(data_path='hide_viewport', frame=end_frame)
 
 
-def animate_slide(obj, start_frame, duration, start_loc, end_loc, easing='QUARTIC'):
+def animate_slide(obj, start_frame, duration, start_loc, end_loc, easing=EASE_IN_OUT):
     """Animates an object's location."""
     end_frame = start_frame + duration
     obj.location = start_loc
@@ -228,7 +230,7 @@ def animate_slide(obj, start_frame, duration, start_loc, end_loc, easing='QUARTI
                 kf.interpolation = 'BEZIER'
                 kf.easing = easing
 
-def animate_scale(obj, start_frame, duration, start_scale, end_scale, easing='QUARTIC'):
+def animate_scale(obj, start_frame, duration, start_scale, end_scale, easing=EASE_IN_OUT):
     """Animates an object's scale."""
     end_frame = start_frame + duration
     obj.scale = Vector((start_scale, start_scale, start_scale))
@@ -290,7 +292,7 @@ def animate_glow(obj, start_frame, duration, max_strength=5.0, min_strength=0.0)
     principled_node.inputs['Emission Strength'].keyframe_insert(data_path='default_value', frame=start_frame + duration + 1)
 
 
-def animate_camera_motion(camera_obj, start_frame, duration, target_loc, target_rot_euler, target_focal_length=None, easing='QUARTIC'):
+def animate_camera_motion(camera_obj, start_frame, duration, target_loc, target_rot_euler, target_focal_length=None, easing=EASE_IN_OUT):
     """Animates camera location, rotation, and optionally focal length."""
     end_frame = start_frame + duration
 
@@ -826,9 +828,10 @@ def main():
             principled_node = obj.data.materials[0].node_tree.nodes.get('Principled BSDF')
             if principled_node: principled_node.inputs['Alpha'].default_value = 0.0
             obj.data.materials[0].blend_method = 'BLEND'
-            obj.data.materials[0].shadow_method = 'HASHED'
+            if hasattr(obj.data.materials[0], 'shadow_method'):
+                obj.data.materials[0].shadow_method = 'HASHED'
+                obj.data.materials[0].keyframe_insert(data_path='shadow_method', frame=t + FADE_DURATION)
             obj.data.materials[0].keyframe_insert(data_path='blend_method', frame=t + FADE_DURATION)
-            obj.data.materials[0].keyframe_insert(data_path='shadow_method', frame=t + FADE_DURATION)
         
         obj.hide_render = True
         obj.hide_viewport = True
@@ -865,15 +868,10 @@ def main():
     # Dim `+` and `3`
     for obj in [plus_op_text, three_const_text]:
         if obj.data and obj.data.materials:
-            # For the text objects, switch material to MAT_DIMMED and animate.
-            # Make a unique material for each object for independent animation
             dim_mat_name = f"MAT_DIMMED_{obj.name}"
             dim_mat = create_material(dim_mat_name, color=(0.5, 0.5, 0.5, 1), roughness=0.8, emission_strength=0.0)
-            
-            # Switch materials: current material at start_frame-1, dimmed material at start_frame
             obj.data.materials.append(dim_mat)
             obj.active_material_index = 0 # Default is 0
-            obj.keyframe_insert(data_path='active_material_index', frame=t) # Keep original material active
             obj.active_material_index = len(obj.data.materials) - 1 # Switch to dimmed
             obj.keyframe_insert(data_path='active_material_index', frame=t + 2*F) # Switch to dimmed material
 
@@ -966,9 +964,7 @@ def main():
     # Animate CancelXEffect: fade in, scale pulse, fade out
     animate_fade(cancel_x_effect, t, SHORT_ANIM_DURATION, fade_in=True)
     animate_scale(cancel_x_effect, t, SHORT_ANIM_DURATION, 0.5, 1.2)
-    animate_scale(cancel_x_effect, t + SHORT_ANIM_DURATION, SHORT_ANIM_DURATION, 1.2, 0.0) # Shrink and disappear
-    animate_fade(cancel_x_effect, t + SHORT_ANIM_DURATION, SHORT_ANIM_DURATION, fade_in=False)
-
+    
     # Simultaneously shrink and fade out the cancelled cubes
     animate_scale(vc_x_num2, t, SHORT_ANIM_DURATION, 0.6, 0.0)
     animate_fade(vc_x_num2, t + SHORT_ANIM_DURATION * 0.5, SHORT_ANIM_DURATION, fade_in=False)
@@ -1028,12 +1024,8 @@ def main():
     # + and 3 glow back
     for obj in [plus_op_text, three_const_text]:
         if obj.data and obj.data.materials and len(obj.data.materials) > 1:
-            # Switch back to original material (index 0)
             obj.active_material_index = 1 # Current dimmed
-            obj.keyframe_insert(data_path='active_material_index', frame=t)
             obj.active_material_index = 0 # Original
-            obj.keyframe_insert(data_path='active_material_index', frame=t + FADE_DURATION)
-            # Add a slight glow pulse on the original material
             animate_glow(obj, t + FADE_DURATION, GLOW_PULSE_DURATION, max_strength=0.5, min_strength=0.0)
     
     # Hide arr_mult_denom (4x was replaced)
@@ -1163,7 +1155,7 @@ def main():
 
     t = 47 * F
 
-    # 0:47-0:50: GraphAxes fades in. FunctionLine draws itself.
+    # 0:47-1:00: GraphAxes fades in. FunctionLine draws itself.
     graph_axes = create_graph_axes("GraphAxes", location=(5, 0.1, 0), size=6.0)
     animate_fade(graph_axes, t, FADE_DURATION, fade_in=True)
 
@@ -1173,11 +1165,11 @@ def main():
     # Animate Trim Curve to draw the line
     mod = func_line_obj.modifiers.get("Trim_Curve")
     if mod:
-        animate_property(mod, 'end', t + FADE_DURATION, t + FADE_DURATION + DRAW_DURATION, 0.0, 1.0, LINE)
+        animate_property(mod, 'end', t + FADE_DURATION, t + FADE_DURATION + DRAW_DURATION, 0.0, 1.0, 'LINEAR')
     
     t = 50 * F
 
-    # 0:50-0:53: Pulsating HoleEffect at (0, 3) on the line.
+    # 1:00-1:05: Pulsating HoleEffect at (0, 3) on the line.
     # The coordinate (0,3) in math maps to (0,0,3) in Blender (x, y_depth, z_height) for this setup
     hole_effect = create_hole_effect("HoleEffect", location=(5 + 0, 0.1, 3.05), size=0.3) # Offset Z slightly
     
@@ -1188,7 +1180,7 @@ def main():
     
     t = 53 * F
 
-    # 0:53-0:57: "Domain: All real numbers x ≠ 0" and interval notation fade in.
+    # 1:05-1:08: "Domain: All real numbers x ≠ 0" and interval notation fade in.
     domain_text_line1 = create_text_display("TXT_Domain1", "Domain: All real numbers x ≠ 0", location=(0, 0.1, -3.0), size=0.5)
     domain_text_line2 = create_text_display("TXT_Domain2", "$(-\infty, 0) \cup (0, \infty)$", location=(0, 0.1, -3.5), size=0.5)
     
@@ -1196,16 +1188,6 @@ def main():
     animate_fade(domain_text_line2, t + FADE_DURATION * 0.5, FADE_DURATION, fade_in=True)
 
     t = 57 * F
-
-    # 0:57-1:00: Camera zooms out to show full whiteboard. "Summary of Solution:" appears.
-    cam_final_zoom_out_loc = Vector((0, -15, 7))
-    cam_final_zoom_out_rot = Euler((math.radians(70), 0, 0), 'XYZ')
-    animate_camera_motion(camera_obj, t, 3*F, cam_final_zoom_out_loc, cam_final_zoom_out_rot, target_focal_length=20)
-
-    summary_text = create_text_display("TXT_Summary", "Summary of Solution:", location=(0, 0.1, 4.5), size=0.7)
-    animate_fade(summary_text, t + FADE_DURATION, FADE_DURATION, fade_in=True)
-
-    t = 60 * F
 
     # 1:00-1:05: Simplified function and domain statement highlighted.
     # Simplified function is: fx_eq_text, frac_group_empty, plus_op_text, three_const_text
@@ -1234,7 +1216,7 @@ def main():
     elements_to_fade_out = [
         fx_eq_text, initial_frac_line, plus_op_text, three_const_text, # previously part of func_group_empty
         x_squared_text, four_x_text, # original function text
-        summary_text, graph_axes, func_line_obj, hole_effect, 
+        graph_axes, func_line_obj, hole_effect, 
         vc_x_interact, ne_bar, cb_zero, domain_text_line1, domain_text_line2, step1_text, step2_text, problem_text
     ]
     
@@ -1252,7 +1234,7 @@ def main():
     # Re-position them as individual elements. These were already created, just moved/unparented
     # vc_x_num1 is the remaining 'x'
     # cb_four is the remaining '4'
-    # initial_frac_line is the original fraction line
+    # initial_frac_line is the original fraction
     
     animate_slide(vc_x_num1, t + FADE_DURATION, FADE_DURATION, vc_x_num1.location.copy(), target_simplified_loc + Vector((-1.0, 0, 0.3)))
     animate_slide(cb_four, t + FADE_DURATION, FADE_DURATION, cb_four.location.copy(), target_simplified_loc + Vector((-1.0, 0, -0.3)))
@@ -1273,8 +1255,6 @@ def main():
         animate_scale(obj, t + FADE_DURATION, FADE_DURATION, obj.scale.x, 1.0)
         if obj.data and obj.data.materials and obj.active_material_index > 0:
             obj.active_material_index = 0
-            obj.keyframe_insert(data_path='active_material_index', frame=t + FADE_DURATION) # Revert to original material
-
 
     additional_text = create_text_display("TXT_Additional", "Additional Interpretation: Finding the Root (where f(x)=0)", 
                                         location=(0, 0.1, 4), size=0.6)
@@ -1327,7 +1307,6 @@ def main():
     cb_zero_root_value = bpy.data.objects.get("CB_Zero_Root_Value")
     if cb_zero_root_value: 
         cb_zero_root_value.data.body = "-3" # Update text
-        # Ensure it has the dark text material
         if MAT_TEXT_DARK not in cb_zero_root_value.data.materials:
             cb_zero_root_value.data.materials.append(MAT_TEXT_DARK)
         cb_zero_root_value.active_material_index = cb_zero_root_value.data.materials.find(MAT_TEXT_DARK.name)
@@ -1395,108 +1374,7 @@ def main():
 
     t = 85 * F
 
-    # 1:25-1:28: -12 slides towards GraphAxes, stops away from HoleEffect.
-    # Re-show graph axes, func line, hole effect (they were faded out from 1:05)
-    # The existing graph_axes, func_line_obj, hole_effect objects will be re-used, not new ones.
-    
-    for obj in [graph_axes, func_line_obj, hole_effect]:
-        animate_fade(obj, t, FADE_DURATION, fade_in=True)
-        if obj.name == func_line_obj.name: # Ensure line is fully drawn if not already
-             mod = obj.modifiers.get("Trim_Curve")
-             if mod: mod.end = 1.0; mod.keyframe_insert(data_path='end', frame=t)
-
-
-    # Slide -12 (cb_zero_root) towards graph
-    current_root_loc = cb_zero_root.location.copy()
-    target_root_loc = Vector((graph_axes.location.x - 3, 0.1, graph_axes.location.z - 2)) # Example: near x=-12 on graph
-    animate_slide(cb_zero_root, t, SLIDE_DURATION, current_root_loc, target_root_loc)
-
-    t = 88 * F
-
-    # 1:28-1:30: "Valid Root: x = -12 (within domain)" appears.
-    valid_root_text = create_text_display("TXT_ValidRoot", "Valid Root: x = -12 (within domain)", location=(0, 0.1, -3.0), size=0.5)
-    animate_fade(valid_root_text, t, FADE_DURATION, fade_in=True)
-
-    t = 90 * F
-
-    # 1:30-1:35: Camera pulls back to reveal entire whiteboard, key results highlighted. "Solved!" appears.
-    # Fade out current root explanation
-    elements_to_fade_out_final_pullback = [
-        valid_root_text, vc_x_num1, eq_bar_root, cb_zero_root, additional_text,
-        graph_axes, func_line_obj, hole_effect # These will be re-used, so hide then re-show
-    ]
-
-    for obj in elements_to_fade_out_final_pullback:
-        if obj and obj.name in bpy.data.objects:
-            animate_fade(obj, t, FADE_DURATION, fade_in=False)
-
-    # Re-position simplified function and domain texts to their final positions for summary
-    # The initial function components are still around: fx_eq_text, plus_op_text, three_const_text
-    # Re-create a simplified fraction group to manage them
-    simplified_frac_loc_final = Vector((-3.0, 0.1, 2.0))
-    bpy.ops.object.empty_add(type='PLAIN_AXES', align='WORLD', location=simplified_frac_loc_final)
-    frac_group_final = bpy.context.object
-    frac_group_final.name = "GRP_SimplifiedFraction_Final"
-    add_object_to_collection(frac_group_final, collections["_MATH_ELEMENTS"].name)
-    
-    # Re-parent the elements that form the simplified fraction (vc_x_num1 and a new frac line)
-    vc_x_num1.parent = frac_group_final
-    vc_x_num1.location = Vector((0, 0, 0.3)) # Relative to parent
-    
-    cb_four_final = create_constant_block("CB_Four_Final", "4", location=(0, 0, -0.3), size_x=0.8, size_y=0.4, size_z=0.2)
-    cb_four_final.parent = frac_group_final
-    
-    initial_frac_line_final = create_fraction_line("FRAC_Initial_Final", Vector((-0.5, 0, 0)), Vector((0.5, 0, 0)))
-    initial_frac_line_final.parent = frac_group_final
-    
-    fx_eq_text.parent = frac_group_final
-    fx_eq_text.location = Vector((-1.5, 0, 0)) # Relative to parent
-    plus_op_text.parent = frac_group_final
-    plus_op_text.location = Vector((1.0, 0, 0)) # Relative to parent
-    three_const_text.parent = frac_group_final
-    three_const_text.location = Vector((1.5, 0, 0)) # Relative to parent
-
-
-    simplified_form_text.location = Vector((-2.0, 0.1, 3.5)) # This one is global
-
-    # Restore domain text objects (already created)
-    domain_text_line1.location = Vector((0, 0.1, -3.0))
-    domain_text_line2.location = Vector((0, 0.1, -3.5))
-
-    # Re-create the simplified domain inequality objects (x!=0)
-    vc_x_interact_final = create_variable_cube("VC_X_Interact_Final", "x", location=(0.0, 0.1, -1.0), size=0.6)
-    ne_bar_final = create_equals_bar("NE_Bar_Final", location=(1.0, 0.1, -1.0), is_not_equal=True)
-    cb_zero_final = create_constant_block("CB_Zero_Final", "0", location=(2.0, 0.1, -1.0), size_x=0.8, size_y=0.4, size_z=0.2)
-
-    # Re-create the graph axes and function line with the hole effect.
-    # We hide the old ones and show new ones if they were destroyed. If not, just re-show.
-    # For simplicity, let's re-show the ones created earlier and hidden.
-    for obj in [graph_axes, func_line_obj, hole_effect]:
-        if obj and obj.name in bpy.data.objects:
-            animate_fade(obj, t + FADE_DURATION, FADE_DURATION, fade_in=True) # Fade in again
-            if obj.name == func_line_obj.name: # Ensure line is fully drawn if not already
-                mod = obj.modifiers.get("Trim_Curve")
-                if mod: mod.end = 1.0; mod.keyframe_insert(data_path='end', frame=t + FADE_DURATION)
-
-
-    # Re-show all relevant elements
-    for obj in [frac_group_final, simplified_form_text, domain_text_line1, domain_text_line2,
-                vc_x_interact_final, ne_bar_final, cb_zero_final]:
-        animate_fade(obj, t + FADE_DURATION, FADE_DURATION, fade_in=True)
-        # Also ensure their children fade in if they are parented empties
-        if obj.type == 'EMPTY':
-            for child in obj.children:
-                animate_fade(child, t + FADE_DURATION, FADE_DURATION, fade_in=True)
-    
-    # Animate camera pull back
-    animate_camera_motion(camera_obj, t, 5*F, Vector((0, -20, 10)), Euler((math.radians(70), 0, 0), 'XYZ'), target_focal_length=20)
-    
-    solved_text = create_text_display("TXT_Solved", "Solved!", location=(0, 0.1, 0), size=2.0, extrusion=0.1, material=MAT_SOLVED_TEXT)
-    animate_fade(solved_text, t + 3*F, FADE_DURATION, fade_in=True)
-
-    t = 95 * F
-
-    # 1:35-1:38: Fade to black. "Blender Math Animation" card.
+    # 1:25-1:28: Fade to black. "Blender Math Animation" card.
     # Fade out all current content
     for obj in bpy.data.objects:
         if obj.name not in [camera_obj.name, light_obj1.name, light_obj2.name, whiteboard_bg.name]: # Keep camera, lights, whiteboard
@@ -1512,7 +1390,7 @@ def main():
     if whiteboard_mat and whiteboard_mat.use_nodes:
         principled_node = whiteboard_mat.node_tree.nodes.get('Principled BSDF')
         if principled_node:
-            animate_property(principled_node.inputs['Base Color'], 'default_value', t + 2*F, TOTAL_FRAMES, (0.95, 0.95, 0.95, 1), (0.0, 0.0, 0.0, 1), LINE)
+            animate_property(principled_node.inputs['Base Color'], 'default_value', t + 2*F, TOTAL_FRAMES, (0.95, 0.95, 0.95, 1), (0.0, 0.0, 0.0, 1), 'LINEAR')
 
     # Fade world background to black
     bpy.context.scene.world.use_nodes = True

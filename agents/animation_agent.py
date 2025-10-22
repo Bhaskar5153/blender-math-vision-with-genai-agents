@@ -42,11 +42,11 @@ class AnimationAgent:
         """
         Generate a Blender script for the animation based on the markdown plan.
         """
-        with open(file=markdown_plan, mode='r', encoding="utf-8") as file:
-            markdown_plan = file.read()
+        # Use markdown_plan directly as a string
+        plan_content = markdown_plan
 
         if subdomain == "elementary_algebra":
-            blender_prompt = elementary_algebra.build_blender_prompt(markdown_plan)
+            blender_prompt = elementary_algebra.build_blender_prompt(plan_content)
             response = client.models.generate_content(model="gemini-2.5-flash", contents=blender_prompt)
             blender_script = response.text.strip()
 

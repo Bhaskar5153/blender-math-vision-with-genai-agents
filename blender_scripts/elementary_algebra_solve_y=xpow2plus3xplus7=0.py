@@ -1,4 +1,4 @@
-```python
+
 import bpy
 import math
 import mathutils
@@ -1269,5 +1269,3 @@ def create_animation():
 # --- Execution ---
 if __name__ == "__main__":
     create_animation()
-
-```
