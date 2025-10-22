@@ -11,7 +11,7 @@ from agents.animation_agent import AnimationAgent
 # from agents.geometry_agent import GeometryAgent
 # from agents.calculus_agent import CalculusAgent
 # from agents.statistics_agent import StatisticsAgent
-# from agents.trigonometry_agent import TrigonometryAgent
+from agents.trigonometry_agent import TrigonometryAgent
 # from agents.linear_algebra_agent import LinearAlgebraAgent
 # from agents.number_theory_agent import NumberTheoryAgent
 # from agents.combinatorics_agent import CombinatoricsAgent
